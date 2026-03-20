@@ -25,7 +25,16 @@ def load_llm():
 # =========================
 def generate_quiz(topic):
     llm = load_llm()
-    prompt = f"Create ONE multiple choice question about {topic}. Format: QUESTION: [text] A) [opt] B) [opt] C) [opt] D) [opt] ANSWER: [Letter]"
+    prompt = f"""
+    Create ONE challenging multiple choice question about {topic}.
+    Format:
+    QUESTION: [text]
+    A) [option]
+    B) [option]
+    C) [option]
+    D) [option]
+    ANSWER: [Just the Letter]
+    """
     try:
         response = llm.invoke(prompt).content
         lines = [l.strip() for l in response.split('\n') if l.strip()]
@@ -33,13 +42,15 @@ def generate_quiz(topic):
         for line in lines:
             if "QUESTION:" in line: q = line.replace("QUESTION:", "").strip()
             elif any(line.startswith(x) for x in ["A)", "B)", "C)", "D)"]): opts.append(line)
-            elif "ANSWER:" in line: ans = line.replace("ANSWER:", "").strip().upper()
+            elif "ANSWER:" in line: 
+                ans_line = line.replace("ANSWER:", "").strip().upper()
+                ans = ans_line[0] if ans_line else ""
         return q, opts, ans
     except:
         return None, None, None
 
 # =========================
-# 3. SESSION INIT
+# 3. SESSION & PAGES
 # =========================
 def init_session():
     if "logged_in" not in st.session_state:
@@ -49,9 +60,6 @@ def init_session():
             "messages": [], "progress": {}, "quiz": None, "quiz_answer": None
         })
 
-# =========================
-# 4. PAGES
-# =========================
 def login_page():
     st.title("🎓 Concept Master Login")
     u = st.text_input("Username")
@@ -60,7 +68,6 @@ def login_page():
         if u in st.session_state.users and st.session_state.users[u] == p:
             st.session_state.logged_in = True
             st.session_state.current_user = u
-            # Initialize progress for user if it doesn't exist
             if u not in st.session_state.progress:
                 st.session_state.progress[u] = {"correct": 0}
             st.rerun()
@@ -77,71 +84,80 @@ def register_page():
     if st.button("Create Account"):
         if u:
             st.session_state.users[u] = p
-            st.session_state.progress[u] = {"correct": 0} # Pre-init progress
+            st.session_state.progress[u] = {"correct": 0}
             st.success("Account created! Go to Login.")
             st.session_state.page = "login"
             st.rerun()
 
+# =========================
+# 4. THE TUTOR & QUIZ PAGE
+# =========================
 def tutor_page():
     llm = load_llm()
     user = st.session_state.current_user
     
-    # Safety Check for the KeyError fix
     if user not in st.session_state.progress:
         st.session_state.progress[user] = {"correct": 0}
 
     st.title("🎓 CONCEPT MASTER AI")
 
     with st.sidebar:
-        st.write(f"Logged in as: **{user}**")
-        st.session_state.mode = st.radio("Mode", ["Tutor", "Quiz"])
+        st.write(f"User: **{user}** | Score: **{st.session_state.progress[user]['correct']}**")
+        st.session_state.mode = st.radio("Switch Mode", ["Tutor", "Quiz"])
+        if st.button("Clear Chat"):
+            st.session_state.messages = []
+            st.rerun()
         if st.button("Logout"):
             st.session_state.logged_in = False
             st.rerun()
 
+    # --- TUTOR MODE ---
     if st.session_state.mode == "Tutor":
         for msg in st.session_state.messages:
             with st.chat_message(msg["role"]): st.markdown(msg["content"])
 
-        user_input = st.chat_input("Ask a question or say hello...")
+        user_input = st.chat_input("Ask a question...")
         if user_input:
             st.session_state.messages.append({"role": "user", "content": user_input})
             with st.chat_message("user"): st.markdown(user_input)
             
             with st.chat_message("assistant"):
                 response = llm.invoke(user_input).content
-                
-                # --- SMART VIDEO FILTER ---
-                keywords = ["how", "what", "why", "explain", "define", "concept", "mean"]
+                keywords = ["how", "what", "why", "explain", "define", "concept"]
                 if any(w in user_input.lower() for w in keywords):
-                    q_encoded = urllib.parse.quote(user_input)
-                    yt = f"\n\n🎬 **Suggested Video:** [YouTube Link](https://www.youtube.com/results?search_query={q_encoded})"
+                    q_enc = urllib.parse.quote(user_input)
+                    yt = f"\n\n🎬 **Video:** [Watch here](https://www.youtube.com/results?search_query={q_enc})"
                     full_resp = response + yt
                 else:
                     full_resp = response
-                
                 st.markdown(full_resp)
                 st.session_state.messages.append({"role": "assistant", "content": full_resp})
 
+    # --- QUIZ MODE ---
     elif st.session_state.mode == "Quiz":
-        st.header("📝 Quiz Mode")
-        topic = st.text_input("Quiz Topic?")
-        if st.button("Generate"):
-            q, opts, ans = generate_quiz(topic)
-            st.session_state.quiz = (q, opts)
-            st.session_state.quiz_answer = ans
+        st.header("📝 Challenge Mode")
+        topic = st.text_input("Test me on...")
         
+        if st.button("Generate Question") and topic:
+            with st.spinner("Thinking..."):
+                q, opts, ans = generate_quiz(topic)
+                if q:
+                    st.session_state.quiz = (q, opts)
+                    st.session_state.quiz_answer = ans
+                else:
+                    st.error("Try again!")
+
         if st.session_state.quiz:
             q, opts = st.session_state.quiz
             st.subheader(q)
-            choice = st.radio("Select one:", opts)
-            if st.button("Submit"):
+            choice = st.radio("Choose:", opts, key=f"q_{q[:15]}")
+            if st.button("Submit Answer"):
                 if choice.startswith(st.session_state.quiz_answer):
-                    st.success("Correct!")
+                    st.success("✅ Correct!")
                     st.session_state.progress[user]["correct"] += 1
                 else:
-                    st.error(f"Wrong. It was {st.session_state.quiz_answer}")
-                st.session_state.quiz = None
+                    st.error(f"❌ Wrong. It was {st.session_state.quiz_answer}")
+                st.session_state.quiz = None # Ready for next one
 
 # =========================
 # 5. MAIN
