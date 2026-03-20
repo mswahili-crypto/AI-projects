@@ -89,12 +89,11 @@ def register_page():
 # =========================
 # 4. THE TUTOR PAGE
 # =========================
+
 def tutor_page():
     llm = load_llm()
     user = st.session_state.current_user
-    if user not in st.session_state.progress:
-        st.session_state.progress[user] = {"correct": 0}
-
+    
     st.title("🎓 CONCEPT MASTER AI")
 
     with st.sidebar:
@@ -117,21 +116,28 @@ def tutor_page():
             st.session_state.messages.append({"role": "user", "content": user_input})
             with st.chat_message("user"): st.markdown(user_input)
             
-            # Natural Memory context
             history = "\n".join([f"{m['role']}: {m['content'][:100]}" for m in st.session_state.messages[-5:]])
             
             with st.chat_message("assistant"):
                 prompt = [
-                    ("system", f"You are a fluent, human-like University Tutor. Be engaging. History: {history}"),
+                    ("system", f"You are a fluent, human-like University Tutor. If the user greets you, greet them back naturally. Only be academic if they ask a question. History: {history}"),
                     ("user", user_input)
                 ]
                 response = llm.invoke(prompt).content
                 
-                # YouTube integration
-                q_encoded = urllib.parse.quote(user_input)
-                yt_link = f"\n\n🎬 **Watch a breakdown:** [YouTube Link](https://www.youtube.com/results?search_query={q_encoded})"
+                # --- SMART VIDEO FILTER ---
+                # Only add video if the user is actually asking a question
+                question_keywords = ["how", "what", "why", "who", "explain", "define", "concept", "tell me", "mean"]
+                is_question = any(word in user_input.lower() for word in question_keywords)
                 
-                full_resp = response + yt_link
+                if is_question:
+                    q_encoded = urllib.parse.quote(user_input)
+                    yt_link = f"\n\n🎬 **Watch a breakdown:** [YouTube Link](https://www.youtube.com/results?search_query={q_encoded})"
+                    full_resp = response + yt_link
+                else:
+                    full_resp = response
+                # ---------------------------
+
                 st.markdown(full_resp)
                 st.session_state.messages.append({"role": "assistant", "content": full_resp})
 
